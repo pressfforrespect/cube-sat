@@ -1,258 +1,300 @@
-# main.py
+"""
+main.py
 
+Main application for the CubeSat Mission Control GUI.
+Integrates all modules into a single interface.
+Optimized for performance, maintainability, and best practices.
+"""
 import sys
 import time
 import datetime
 import threading
-import math
 from tkinter import END, scrolledtext
+from collections import deque
 import customtkinter as ctk
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Import custom modules
+# --- Import custom modules ---
 from satellite_components import Satellite, Thruster, Sensor
 from control_algorithm import PIDController
 from telemetry import TelemetrySystem
 from history import HistoryRecorder
 from orbit_simulation import OrbitSimulationFrame
-from login import LoginPage # Import the LoginPage class
+from login import LoginPage
 
-class SatelliteGUI(ctk.CTk):
+# --- Import centralized configuration ---
+import config
+
+class SatelliteGUI(ctk.CTkToplevel):
     """
     Main application window for the satellite control system GUI.
+    This is a Toplevel window, meant to appear after the login.
     """
-    def __init__(self, target_location):
-        super().__init__()
+    def __init__(self, master: ctk.CTk, target_location: tuple):
+        super().__init__(master)
+        self.login_root = master  # Keep a reference to the root login window
 
-        # System initialization
+        # --- System Initialization ---
         self.my_satellite = Satellite(target_location)
         self.my_thruster = Thruster()
         self.my_sensor = Sensor(self.my_satellite)
-        self.my_telemetry = TelemetrySystem()
-        self.my_history = HistoryRecorder()
-        self.my_controller = PIDController(Kp=0.5, Ki=0.01, Kd=0.1)
+        self.my_telemetry = TelemetrySystem(max_log_size=config.TELEMETRY_LOG_MAX_SIZE)
+        self.my_history = HistoryRecorder(max_history_size=config.HISTORY_LOG_MAX_SIZE)
+        self.my_controller = PIDController(**config.PID_GAINS)
 
-        # Simulation state
+        # --- Simulation State ---
         self.loop_is_running = False
         self.recording_history = False
-        self.loop_lock = threading.Lock()
+        self.loop_thread = None
         self.paused = True
         self.status_text = "Paused"
-        
-        self.drift_data = []
-        self.correction_counts = []
 
-        self.setup_gui()
+        # --- OPTIMIZATION: Use deques for plot data to cap memory usage ---
+        self.drift_data = deque(maxlen=config.PLOT_DATA_MAX_POINTS)
+        self.correction_counts = deque(maxlen=config.PLOT_DATA_MAX_POINTS)
 
-        # Start the simulation loop thread
-        self.simulation_thread = threading.Thread(target=self.main_loop, daemon=True)
-        self.simulation_thread.start()
+        self._setup_gui()
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def setup_gui(self):
-        """Configures and places all the GUI widgets."""
-        self.title("CubeSat Autonomous Station-Keeping System")
-        self.geometry("1800x950")
-        self.columnconfigure(0, weight=2)
-        self.columnconfigure(1, weight=4)
-        self.columnconfigure(2, weight=1)
-        self.rowconfigure(0, weight=1)
+    def _setup_gui(self) -> None:
+        """Initializes the main GUI window and its components."""
+        self.title("CubeSat Mission Control")
+        self.geometry("1600x900")
+        self.minsize(1200, 700)
 
-        # Left Frame
-        self.left_frame = ctk.CTkFrame(self)
-        self.left_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        self.left_frame.columnconfigure(0, weight=1)
-        self.left_frame.rowconfigure(1, weight=1) 
-        self.left_frame.rowconfigure(3, weight=2)
-        self.left_frame.rowconfigure(4, weight=0) 
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
-        self.telemetry_label = ctk.CTkLabel(self.left_frame, text="Real Time Telemetry", font=ctk.CTkFont(size=20, weight="bold"))
-        self.telemetry_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-        self.telemetry_text = ctk.CTkTextbox(self.left_frame, wrap="word", font=("Helvetica", 16))
-        self.telemetry_text.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        # --- Top Frame for Controls ---
+        top_frame = ctk.CTkFrame(self, corner_radius=10)
+        top_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        self._setup_controls(top_frame)
 
-        self.viz_label = ctk.CTkLabel(self.left_frame, text="Satellite Visualization", font=ctk.CTkFont(size=16))
-        self.viz_label.grid(row=2, column=0, pady=(20, 10), sticky="ew")
-        
-        # Embed the OrbitSimulationFrame
-        self.orbit_simulation_widget = OrbitSimulationFrame(master=self.left_frame)
-        self.orbit_simulation_widget.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
+        # --- Left Frame for Telemetry and History ---
+        left_frame = ctk.CTkFrame(self, corner_radius=10)
+        left_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        left_frame.grid_rowconfigure(1, weight=1)
+        left_frame.grid_rowconfigure(3, weight=1)
+        self._setup_telemetry_history(left_frame)
 
-        # Control buttons
-        self.button_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
-        self.button_frame.grid(row=4, column=0, pady=(10, 0), sticky="ew")
-        self.button_frame.columnconfigure((0, 1, 2, 3, 4), weight=1)
-        
-        self.start_button = ctk.CTkButton(self.button_frame, text="Start Simulation", command=self.start_loop)
-        self.start_button.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        self.stop_button = ctk.CTkButton(self.button_frame, text="Pause Simulation", command=self.stop_loop)
-        self.stop_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        self.record_button = ctk.CTkButton(self.button_frame, text="Start Recording", command=self.toggle_recording)
-        self.record_button.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
-        self.clear_history_button = ctk.CTkButton(self.button_frame, text="Clear History", command=self.clear_history, fg_color="#E74C3C", hover_color="#C0392B")
-        self.clear_history_button.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
-        self.quit_button = ctk.CTkButton(self.button_frame, text="Quit", command=self.on_closing, fg_color="#E74C3C", hover_color="#C0392B")
-        self.quit_button.grid(row=0, column=4, padx=5, pady=5, sticky="ew")
+        # --- Right Frame for Plots and Orbit Sim ---
+        right_frame = ctk.CTkFrame(self, corner_radius=10)
+        right_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
+        right_frame.grid_rowconfigure(0, weight=1) # Make orbit sim expand
+        self._setup_plots_and_orbit(right_frame)
 
-        # Middle Frame
-        self.middle_frame = ctk.CTkFrame(self)
-        self.middle_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
-        self.middle_frame.columnconfigure(0, weight=1)
-        self.middle_frame.rowconfigure(0, weight=1)
-        self.middle_frame.rowconfigure(1, weight=1)
+    def _setup_controls(self, parent: ctk.CTkFrame) -> None:
+        """Sets up the control buttons in the top frame."""
+        parent.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        self.start_button = ctk.CTkButton(parent, text="Start Loop", command=self.toggle_loop)
+        self.start_button.grid(row=0, column=0, padx=5, pady=10)
+        self.pause_button = ctk.CTkButton(parent, text="Pause", command=self.toggle_pause)
+        self.pause_button.grid(row=0, column=1, padx=5, pady=10)
+        self.history_button = ctk.CTkButton(parent, text="Start Recording History", command=self.toggle_history_recording)
+        self.history_button.grid(row=0, column=2, padx=5, pady=10)
+        self.clear_history_button = ctk.CTkButton(parent, text="Clear History", command=self.clear_history,
+                                                  fg_color=config.DANGER_COLOR, hover_color=config.DANGER_HOVER_COLOR)
+        self.clear_history_button.grid(row=0, column=3, padx=5, pady=10)
+        self.status_label = ctk.CTkLabel(parent, text=f"Status: {self.status_text}", font=("Roboto", 16))
+        self.status_label.grid(row=0, column=4, padx=10, pady=10)
 
-        self.fig_corr, self.ax_corr = plt.subplots(figsize=(8, 4))
-        self.canvas_corr = self.create_plot(self.fig_corr, self.ax_corr, self.middle_frame, 0, "Correction Count Over Time")
-        self.fig_drift, self.ax_drift = plt.subplots(figsize=(8, 4))
-        self.canvas_drift = self.create_plot(self.fig_drift, self.ax_drift, self.middle_frame, 1, "Orbital Drift Over Time")
-        
-        # Right Frame
-        self.right_frame = ctk.CTkFrame(self)
-        self.right_frame.grid(row=0, column=2, padx=20, pady=20, sticky="nsew")
-        self.right_frame.columnconfigure(0, weight=1)
-        self.right_frame.rowconfigure(1, weight=1)
-        
-        self.history_label = ctk.CTkLabel(self.right_frame, text="History", font=ctk.CTkFont(size=20, weight="bold"))
-        self.history_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-        self.history_text = scrolledtext.ScrolledText(self.right_frame, wrap="word", font=("Helvetica", 10), bg="#2b2b2b", fg="white", insertbackground="white")
-        self.history_text.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+    def _setup_telemetry_history(self, parent: ctk.CTkFrame) -> None:
+        """Sets up telemetry and history display areas."""
+        parent.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(parent, text="Telemetry Data", font=("Roboto", 16, "bold")).grid(row=0, column=0, pady=5)
+        self.telemetry_text = scrolledtext.ScrolledText(parent, wrap='word', height=10, bg="#2b2b2b", fg="white", bd=0)
+        self.telemetry_text.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        ctk.CTkLabel(parent, text="Drift History", font=("Roboto", 16, "bold")).grid(row=2, column=0, pady=5)
+        self.history_text = scrolledtext.ScrolledText(parent, wrap='word', height=10, bg="#2b2b2b", fg="white", bd=0)
+        self.history_text.grid(row=3, column=0, padx=10, pady=5, sticky="nsew")
 
-    def create_plot(self, fig, ax, master, row, title):
-        """Helper method to create and configure a matplotlib plot."""
-        fig.set_facecolor("#2b2b2b")
-        ax.set_facecolor("#2b2b2b")
-        ax.tick_params(colors='white')
-        ax.xaxis.label.set_color('white')
-        ax.yaxis.label.set_color('white')
-        ax.spines['bottom'].set_color('white')
-        ax.spines['left'].set_color('white')
+    def _setup_plots_and_orbit(self, parent: ctk.CTkFrame) -> None:
+        """Sets up the plots and the orbit simulation frame."""
+        # --- Tab View for switching between plots and orbit sim ---
+        tab_view = ctk.CTkTabview(parent)
+        tab_view.pack(fill="both", expand=True, padx=10, pady=10)
+        plots_tab = tab_view.add("Live Plots")
+        orbit_tab = tab_view.add("Orbit Simulation")
+
+        # --- Live Plots ---
+        plots_tab.grid_columnconfigure(0, weight=1)
+        plots_tab.grid_rowconfigure((0, 1), weight=1)
+        self.fig_corr, self.ax_corr = self._create_plot_figure("Correction Count Over Time")
+        self.ax_corr.set_xlabel("Simulation Ticks", color='white')
+        self.ax_corr.set_ylabel("Total Corrections", color='white')
+        self.line_corr, = self.ax_corr.plot([], [], marker='o', color=config.CORRECTION_PLOT_COLOR)
+        self.fig_corr.tight_layout() # Adjust layout AFTER adding labels
+        self.canvas_corr = self.embed_plot(self.fig_corr, plots_tab, 0)
+
+        self.fig_drift, self.ax_drift = self._create_plot_figure("Orbital Drift Over Time")
+        self.ax_drift.set_xlabel("Simulation Ticks", color='white')
+        self.ax_drift.set_ylabel("Error Magnitude (km)", color='white')
+        self.line_drift, = self.ax_drift.plot([], [], marker='o', color=config.DRIFT_PLOT_COLOR)
+        self.fig_drift.tight_layout() # Adjust layout AFTER adding labels
+        self.canvas_drift = self.embed_plot(self.fig_drift, plots_tab, 1)
+
+        # --- Orbit Simulation ---
+        orbit_sim_frame = OrbitSimulationFrame(orbit_tab, fg_color="transparent")
+        orbit_sim_frame.pack(fill="both", expand=True)
+
+    def _create_plot_figure(self, title: str) -> tuple:
+        """Helper to create a styled matplotlib Figure and Axes."""
+        fig = plt.Figure(figsize=(8, 4), facecolor=config.PLOT_BG_COLOR)
+        ax = fig.add_subplot(111, facecolor=config.PLOT_BG_COLOR)
         ax.set_title(title, color='white')
-        canvas = FigureCanvasTkAgg(fig, master=master)
-        canvas.get_tk_widget().grid(row=row, column=0, padx=5, pady=5, sticky="nsew")
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        ax.spines['bottom'].set_color('white')
+        ax.spines['top'].set_color('white')
+        ax.spines['left'].set_color('white')
+        ax.spines['right'].set_color('white')
+        # The tight_layout call is removed from here to be called after labels are set
+        return fig, ax
+
+    def embed_plot(self, fig: plt.Figure, parent: ctk.CTkFrame, row: int) -> FigureCanvasTkAgg:
+        """Embeds a matplotlib figure into the Tkinter parent."""
+        canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.get_tk_widget().grid(row=row, column=0, padx=10, pady=10, sticky="nsew")
         return canvas
 
-    def update_telemetry_display(self):
-        # ... (method code is unchanged)
-        self.telemetry_text.delete(1.0, END)
-        log_str = f"Status: {self.status_text}\n\n"
-        latest_entry = self.my_telemetry._telemetry_log[-1] if self.my_telemetry._telemetry_log else None
-        if latest_entry:
-            curr_loc, target_loc = latest_entry["current_location"], latest_entry["target_location"]
-            error_mag, corr_vec = latest_entry["error_magnitude"], latest_entry["correction_vector"]
-            log_str += f"Location: X:{curr_loc[0]:.3f}, Y:{curr_loc[1]:.3f}, Z:{curr_loc[2]:.3f}\n"
-            log_str += f"Target:   X:{target_loc[0]:.3f}, Y:{target_loc[1]:.3f}, Z:{target_loc[2]:.3f}\n"
-            log_str += f"Error:    {error_mag:.4f} units\n"
-            log_str += f"Correction: X:{corr_vec[0]:.3f}, Y:{corr_vec[1]:.3f}, Z:{corr_vec[2]:.3f}\n"
-        self.telemetry_text.insert(END, log_str)
-
-    def update_history_display(self):
-        # ... (method code is unchanged)
-        self.history_text.delete(1.0, END)
-        for event in self.my_history.get_drift_history():
-            ts_str = event["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-            loc, err, cor = event["location"], event["error_magnitude"], event["correction_vector"]
-            hist_str = f"Event at {ts_str}:\n"
-            hist_str += f"  - Location: X:{loc[0]:.3f}, Y:{loc[1]:.3f}, Z:{loc[2]:.3f}\n"
-            hist_str += f"  - Error Mag: {err:.4f}\n"
-            hist_str += f"  - Correction: X:{cor[0]:.3f}, Y:{cor[1]:.3f}, Z:{cor[2]:.3f}\n"
-            hist_str += "-" * 20 + "\n"
-            self.history_text.insert(END, hist_str)
-        self.history_text.see(END)
-
-    def update_plots(self):
-        # ... (method code is unchanged)
-        self.ax_corr.clear()
-        self.ax_corr.set_title("Correction Count Over Time", color='white')
-        self.ax_corr.set_xlabel("Times", color='white')
-        self.ax_corr.set_ylabel("Correction Count", color='white')
-        self.ax_corr.plot(range(len(self.correction_counts)), self.correction_counts, marker='o', color='cyan')
-        self.fig_corr.tight_layout()
-        self.canvas_corr.draw()
-
-        self.ax_drift.clear()
-        self.ax_drift.set_title("Orbital Drift Over Time", color='white')
-        self.ax_drift.set_xlabel("Times", color='white')
-        self.ax_drift.set_ylabel("Drift Magnitude", color='white')
-        self.ax_drift.plot(range(len(self.drift_data)), self.drift_data, marker='o', color='yellow')
-        self.fig_drift.tight_layout()
-        self.canvas_drift.draw()
-
-    def start_loop(self):
-        with self.loop_lock:
-            self.loop_is_running = True
+    # --- Control Logic ---
+    def toggle_loop(self):
+        self.loop_is_running = not self.loop_is_running
+        if self.loop_is_running:
             self.paused = False
             self.status_text = "Running"
-            self.update_telemetry_display()
-        self.orbit_simulation_widget.start_animation()
-
-    def stop_loop(self):
-        with self.loop_lock:
-            self.loop_is_running = False
+            self.start_button.configure(text="Stop Loop")
+            self.loop_thread = threading.Thread(target=self.main_loop, daemon=True)
+            self.loop_thread.start()
+        else:
             self.paused = True
-            self.status_text = "Paused"
-            self.update_telemetry_display()
-        self.orbit_simulation_widget.stop_animation()
-    
-    def toggle_recording(self):
-        # ... (method code is unchanged)
-        with self.loop_lock:
-            self.recording_history = not self.recording_history
-            self.record_button.configure(text="Stop Recording" if self.recording_history else "Start Recording")
-                
-    def clear_history(self):
-        # ... (method code is unchanged)
-        self.my_history.clear_history()
-        self.history_text.delete(1.0, END)
-        self.drift_data.clear()
-        self.correction_counts.clear()
-        self.update_plots()
+            self.status_text = "Stopped"
+            self.start_button.configure(text="Start Loop")
+        self.status_label.configure(text=f"Status: {self.status_text}")
 
+    def toggle_pause(self):
+        if self.loop_is_running:
+            self.paused = not self.paused
+            self.status_text = "Paused" if self.paused else "Running"
+            self.status_label.configure(text=f"Status: {self.status_text}")
+
+    def toggle_history_recording(self):
+        self.recording_history = not self.recording_history
+        text = "Stop Recording" if self.recording_history else "Start Recording"
+        self.history_button.configure(text=text)
+
+    def clear_history(self):
+        self.my_history.clear_history()
+        self.history_text.delete('1.0', END)
+
+    # --- UI Update Methods ---
+    def update_telemetry_display(self):
+        latest_log = self.my_telemetry.get_latest_log()
+        if not latest_log: return
+        self.telemetry_text.delete('1.0', END)
+        for key, value in latest_log.items():
+            if isinstance(value, (list, tuple, np.ndarray)):
+                val_str = ", ".join(f"{v:.4f}" for v in value)
+                self.telemetry_text.insert(END, f"{key.replace('_', ' ').title()}: [{val_str}]\n")
+            else:
+                self.telemetry_text.insert(END, f"{key.replace('_', ' ').title()}: {value}\n")
+
+    def update_history_display(self):
+        self.history_text.delete('1.0', END)
+        for event in self.my_history.get_drift_history():
+            ts = event['timestamp'].strftime('%H:%M:%S')
+            err = event['error_magnitude']
+            self.history_text.insert(END, f"[{ts}] Drift Detected! Error: {err:.4f}\n")
+
+    def update_plots(self):
+        """OPTIMIZED: Updates plot data without redrawing the entire figure."""
+        # Update Correction Plot
+        self.line_corr.set_data(range(len(self.correction_counts)), list(self.correction_counts))
+        self.ax_corr.relim()
+        self.ax_corr.autoscale_view()
+        self.fig_corr.tight_layout() # Re-adjust layout dynamically
+        self.canvas_corr.draw()
+
+        # Update Drift Plot
+        self.line_drift.set_data(range(len(self.drift_data)), list(self.drift_data))
+        self.ax_drift.relim()
+        self.ax_drift.autoscale_view()
+        self.fig_drift.tight_layout() # Re-adjust layout dynamically
+        self.canvas_drift.draw()
+
+    # --- Main Simulation Loop ---
     def main_loop(self):
-        # ... (method code is unchanged)
+        """The core simulation loop running in a separate thread."""
         correction_count = 0
-        while True:
-            with self.loop_lock:
-                if self.paused:
-                    time.sleep(1)
-                    continue
+        tick_duration = 1.0 / config.SIMULATION_TICK_RATE_HZ
+
+        while self.loop_is_running:
+            start_time = time.monotonic()
+            if self.paused:
+                time.sleep(0.1)
+                continue
 
             self.my_satellite.simulate_drift()
             current_location = self.my_sensor.get_current_position()
-            target_location = self.my_satellite._target_location
-            distance_from_target = math.sqrt(sum((target_location[i] - current_location[i])**2 for i in range(3)))
-            is_on_course = distance_from_target < 0.1
-            correction_vector = [0.0, 0.0, 0.0]
+            target_location = config.INITIAL_TARGET_LOCATION
 
+            distance_from_target = np.linalg.norm(np.array(target_location) - np.array(current_location))
+            is_on_course = distance_from_target < config.ON_COURSE_THRESHOLD
+
+            correction_vector = None
             if not is_on_course:
                 correction_vector = self.my_controller.compute_correction(target_location, current_location)
                 self.my_thruster.apply_thrust(self.my_satellite, correction_vector)
                 correction_count += 1
                 if self.recording_history:
-                    self.my_history.record_drift(datetime.datetime.now(), self.my_satellite.get_location(), distance_from_target, correction_vector)
+                    self.my_history.record_drift(datetime.datetime.now(), current_location, distance_from_target, correction_vector)
                     self.after(0, self.update_history_display)
-            
+
+            # Log data
             self.drift_data.append(distance_from_target)
             self.correction_counts.append(correction_count)
             self.my_telemetry.log_status(datetime.datetime.now(), current_location, target_location, correction_vector, is_on_course)
+
+            # Schedule GUI updates on the main thread
             self.after(0, self.update_telemetry_display)
             self.after(0, self.update_plots)
-            time.sleep(1)
+
+            # Ensure consistent loop timing
+            elapsed_time = time.monotonic() - start_time
+            sleep_time = max(0, tick_duration - elapsed_time)
+            time.sleep(sleep_time)
 
     def on_closing(self):
-        self.destroy()
+        """Handles graceful application shutdown."""
+        self.loop_is_running = False
+        if self.loop_thread and self.loop_thread.is_alive():
+            self.loop_thread.join(timeout=1.0)
+        self.login_root.destroy()  # Destroy the root window, which exits the mainloop
         sys.exit()
 
+# --- Application Entry Point ---
 if __name__ == "__main__":
-    ctk.set_appearance_mode("Dark")
-    ctk.set_default_color_theme("blue")
+    ctk.set_appearance_mode(config.APP_THEME_MODE)
+    ctk.set_default_color_theme(config.APP_COLOR_THEME)
+
+    # The login window is the one and only ROOT window for the entire app.
+    login_window = LoginPage(on_login_success=None) # Callback is set after function definition
 
     def launch_main_app():
-        """Initializes and runs the main satellite control GUI."""
-        target_location = (100.0, 200.0, 300.0)
-        app = SatelliteGUI(target_location=target_location)
-        app.mainloop()
+        """Hides the login window and creates the main application as a Toplevel window."""
+        login_window.withdraw()
+        main_app = SatelliteGUI(
+            master=login_window,
+            target_location=config.INITIAL_TARGET_LOCATION
+        )
+        main_app.grab_set() # Make the main app modal and focused
 
-    # Start the application by showing the login page first.
-    login_app = LoginPage(on_login_success=launch_main_app)
-    login_app.mainloop()
+    # Now that the function is defined, assign it as the callback
+    login_window.on_login_success = launch_main_app
+
+    # This is the single mainloop call that runs the entire application
+    login_window.mainloop()
 
