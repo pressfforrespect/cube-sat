@@ -1,13 +1,13 @@
+# control_algorithm.py
+
 class PIDController:
     """
     A Proportional-Integral-Derivative (PID) controller for autonomous
-    station-keeping. This algorithm calculates a precise correction vector
-    to return the satellite to its target location.
+    station-keeping.
     
     Kp (Proportional): Corrects based on the current error.
     Ki (Integral): Corrects for long-term steady-state errors.
-    Kd (Derivative): Corrects for the rate of change of the error,
-                    preventing overshoot.
+    Kd (Derivative): Corrects for the rate of change of the error.
     """
     def __init__(self, Kp, Ki, Kd):
         self.Kp = Kp
@@ -29,17 +29,13 @@ class PIDController:
         Returns:
             list: The calculated correction vector to apply.
         """
-        # Calculate the current error vector
         error = [target_location[i] - current_location[i] for i in range(3)]
         
-        # Calculate the integral term
         self._integral = [self._integral[i] + error[i] for i in range(3)]
         
-        # Calculate the derivative term
         derivative = [error[i] - self._previous_error[i] for i in range(3)]
         self._previous_error = error
         
-        # Combine all terms to get the final correction vector
         proportional_term = [self.Kp * e for e in error]
         integral_term = [self.Ki * i for i in self._integral]
         derivative_term = [self.Kd * d for d in derivative]

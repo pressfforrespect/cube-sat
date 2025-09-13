@@ -1,5 +1,6 @@
+# history.py
+
 import datetime
-import math
 
 class HistoryRecorder:
     """
@@ -11,12 +12,6 @@ class HistoryRecorder:
     def record_drift(self, timestamp, location, error_magnitude, correction_vector):
         """
         Records an event where the satellite drifted off course.
-        
-        Args:
-            timestamp (datetime.datetime): The time of the drift event.
-            location (list): The satellite's location at the time of the drift.
-            error_magnitude (float): The magnitude of the error.
-            correction_vector (list): The correction applied to fix the drift.
         """
         drift_event = {
             "timestamp": timestamp,
