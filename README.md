@@ -1,6 +1,6 @@
 CubeSat Mission Control Software
 
-!
+
 
 A desktop application designed to simulate, visualize, and control the station-keeping maneuvers of a CubeSat. This software provides a graphical user interface for monitoring telemetry, visualizing the satellite's orbit in 3D, and observing the autonomous course correction system in action.
 
@@ -23,15 +23,7 @@ The core of the simulation is a PID (Proportional-Integral-Derivative) controlle
 
     Performance Optimized: The application uses numpy for efficient vector calculations and collections.deque with a fixed size for logging to ensure stable memory usage over long sessions.
 
-📸 Screenshots
 
-(It is highly recommended to add screenshots of your application here. For example, the login screen and the main dashboard.)
-
-Login Window
-[Your Login Screen Screenshot Here]
-
-Main Dashboard
-[Your Main Dashboard Screenshot Here]
 🛠️ Technology Stack
 
     Language: Python 3
