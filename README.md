@@ -64,7 +64,7 @@ Installation
 
     Clone the repository:
 
-    git clone [https://github.com/your-username/cubesat-mission-control.git](https://github.com/your-username/cubesat-mission-control.git)
+    git clone [https://github.com/pressfforrespect/cubesat-mission-control.git](https://github.com/pressfforrespect/cubesat-mission-control.git) 
     cd cubesat-mission-control
 
     Create and activate a virtual environment (recommended):
