@@ -1,4 +1,3 @@
-# satellite_components.py
 import random
 
 class Satellite:
@@ -15,7 +14,6 @@ class Satellite:
         """
         self._target_location = list(target_location)
         self._current_location = list(target_location)
-        print(f"Satellite initialized. Target Location: {self._target_location}")
 
     def get_location(self):
         """
@@ -54,7 +52,7 @@ class Thruster:
         """
         Initializes the Thruster object.
         """
-        print("Thruster system is online.")
+        pass
 
     def apply_thrust(self, satellite, correction_vector):
         """
@@ -86,7 +84,6 @@ class Sensor:
             satellite (Satellite): The satellite object to monitor.
         """
         self._satellite = satellite
-        print("Sensor system is active.")
 
     def get_current_position(self):
         """

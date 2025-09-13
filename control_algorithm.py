@@ -1,4 +1,3 @@
-# control_algorithm.py
 class PIDController:
     """
     A Proportional-Integral-Derivative (PID) controller for autonomous

@@ -1,26 +1,39 @@
-# This file is not part of the main application, but can be used to
-# view and analyze the history log in a separate environment if needed.
-# It assumes the history log data is saved in a file or database.
+import datetime
+import math
 
-def display_history_from_file(filepath):
+class HistoryRecorder:
     """
-    A function to read and display a history log from a file.
-    (This is a placeholder and assumes a file format for the history data).
+    A class to record and manage the history of satellite drift events.
     """
-    try:
-        with open(filepath, 'r') as file:
-            data = file.read()
-            # In a real-world scenario, you would parse the data (e.g., from JSON, CSV)
-            # and format it for display.
-            print("History data from file:")
-            print(data)
-    except FileNotFoundError:
-        print(f"Error: The file '{filepath}' was not found.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    def __init__(self):
+        self._drift_history = []
+        
+    def record_drift(self, timestamp, location, error_magnitude, correction_vector):
+        """
+        Records an event where the satellite drifted off course.
+        
+        Args:
+            timestamp (datetime.datetime): The time of the drift event.
+            location (list): The satellite's location at the time of the drift.
+            error_magnitude (float): The magnitude of the error.
+            correction_vector (list): The correction applied to fix the drift.
+        """
+        drift_event = {
+            "timestamp": timestamp,
+            "location": location,
+            "error_magnitude": error_magnitude,
+            "correction_vector": correction_vector
+        }
+        self._drift_history.append(drift_event)
 
-if __name__ == "__main__":
-    print("This file demonstrates how to display a history log from a file.")
-    print("Note: The main application does not save history to a file in this version.")
-    # Example usage:
-    # display_history_from_file("satellite_history.log")
+    def get_drift_history(self):
+        """
+        Returns the list of recorded drift events.
+        """
+        return self._drift_history
+        
+    def clear_history(self):
+        """
+        Clears the recorded drift history.
+        """
+        self._drift_history = []
