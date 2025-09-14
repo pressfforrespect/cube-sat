@@ -43,14 +43,23 @@ The project is organized into several modules, each with a specific responsibili
 .
 ├── assets/
 │   └── login.png        # Background image for the login screen
+
 ├── main.py              # Main application entry point, integrates all modules
+
 ├── login.py             # Handles the user authentication window
+
 ├── config.py            # Centralized configuration for all settings
+
 ├── satellite_components.py # Defines Satellite, Thruster, and Sensor classes
+
 ├── control_algorithm.py # Implements the PID station-keeping logic
+
 ├── telemetry.py         # Manages logging of real-time telemetry data
+
 ├── history.py           # Records the history of drift and correction events
+
 ├── orbit_simulation.py  # GUI frame for the 3D orbit visualization
+
 └── README.md            # This file
 
 🚀 Getting Started
@@ -64,7 +73,7 @@ Installation
 
     Clone the repository:
 
-    git clone [https://github.com/pressfforrespect/cubesat-mission-control.git](https://github.com/pressfforrespect/cubesat-mission-control.git) 
+    git clone [https://github.com/pressfforrespect/cube-sat.git](https://github.com/pressfforrespect/cube-sat.git) 
     cd cubesat-mission-control
 
     Create and activate a virtual environment (recommended):
