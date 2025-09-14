@@ -42,6 +42,7 @@ The project is organized into several modules, each with a specific responsibili
 
 .
 ├── assets/
+
 │   └── login.png        # Background image for the login screen
 
 ├── main.py              # Main application entry point, integrates all modules
